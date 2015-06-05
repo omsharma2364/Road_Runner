@@ -7,6 +7,7 @@ import android.location.Location;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.Toolbar;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -26,59 +27,74 @@ import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.maps.model.LatLng;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 
 
-public class MainActivity extends AppCompatActivity implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener {
-    //UI elements
+public class MainActivity extends AppCompatActivity implements  GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener {
+
     ListView parent;
     TextView lastDelivery;
+    TextView tokenMain;
     ProgressBar refreshProgress;
     Button refresh;
     ProgressDialog gettingToken;
+    Toolbar toolbar;
+    RelativeLayout lastClicked;
+    Button lastClick;
 
-    //constatns
     public final static String BASE_URL = "http://1146a6d6.ngrok.com/";
-    public final static String TOKEN_TAG = "";
-    public final static String PACKAGE_TAG = "";
-    public final static String ADDRESS_TAG = "";
-    public final static String LATITUDE_TAG = "";
-    public final static String LONGITUDE_TAG = "";
-    public final static String RESPONSE_TAG = "";
+    public final static String TOKEN_TAG = "driver_token";
+    public final static String RECIEVE_TOKEN_TAG = "token";
+    public final static String PACKAGE_TAG = "package_number";
+    public final static String ADDRESS_TAG = "address";
+    public final static String LATITUDE_TAG = "latitude";
+    public final static String LONGITUDE_TAG = "longitude";
+    public final static String ID_TAG = "id";
+    public final static String RESPONSE_TAG = "message";
     public final static String TOKEN_PAGE = "drivers/register_token";
-    public final static String MARK_DONE_PAGE = "";
-    public final static String GET_DELIVERIES_PAGE = "";
-    public final static String LOCATION_PAGE = "";
+    public final static String MARK_DONE_PAGE = "drivers/mark_task_as_done";
+    public final static String GET_DELIVERIES_PAGE = "drivers/tasks/";
+    public final static String LOCATION_PAGE = "drivers/update_coordinates";
     public final static int SUCCESS_RESPONSE = 200;
+    public static String latitude, longitude;
 
-    //variables used
-    int responseCode = 0;
+
+
+    LocationRequest mLocationRequest;
+    Location mCurrentLocation;
+    int responseCode=200,responseViaAsync;
     DB_Helper db_helper;
     MyAdapter adapter;
-    ArrayList<String> listAddress, listPackageNo;
-    String TOKEN;
-    GoogleApiClient mGoogleApiClient;
-    LocationRequest locationRequest;
     SendLocationAsyncTask sendLocationAsyncTask;
+    ArrayList<String> listAddress, listPackageNo,listTaskId;
+    String TOKEN;
+    boolean viaGetToken,viaGetDeliveries,viaMarkDone;
+    GoogleApiClient mGoogleApiClient;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        viaGetToken=false;
+        viaGetDeliveries=false;
+        viaMarkDone=false;
 
         initUI();
         listAddress = new ArrayList<String>();
@@ -90,15 +106,32 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             getToken();
         } else {
             TOKEN = db_helper.getToken();
-            sendLocation();
+            tokenMain.setText(TOKEN);
+            Toast.makeText(getApplicationContext(), TOKEN, Toast.LENGTH_SHORT).show();
+            buildGoogleApiClient();
             getDeliveriesToBeDone();
         }
+
+
+    }
+
+    protected synchronized void buildGoogleApiClient() {
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .addApi(LocationServices.API)
+                .build();
+        mGoogleApiClient.connect();
+
     }
 
     public void initUI() {
         db_helper = new DB_Helper(this);
+        toolbar=(Toolbar)findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
         parent = (ListView) findViewById(R.id.list);
         lastDelivery = (TextView) findViewById(R.id.footer);
+        tokenMain=(TextView)findViewById(R.id.texttoken);
         refreshProgress = (ProgressBar) findViewById(R.id.progressBar);
         refresh = (Button) findViewById(R.id.refresh);
         gettingToken = new ProgressDialog(this);
@@ -110,52 +143,17 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
     public void onRefresh(View v) {
 
+        listPackageNo=new ArrayList<>();
+        listTaskId=new ArrayList<>();
+        listAddress=new ArrayList<>();
+        adapter.notifyDataSetChanged();
         getDeliveriesToBeDone();
 
     }
 
     public void onDone(View v) {
-        Toast.makeText(getApplicationContext(), "Done!!", Toast.LENGTH_SHORT).show();
         View parentRow = (View) v.getParent();
-        parentRow.setBackgroundColor(Color.RED);
         markDeliveryDone(parentRow);
-    }
-
-    @Override
-    public void onConnected(Bundle bundle) {
-        locationRequest = new LocationRequest();
-        locationRequest.setInterval(3000);
-        locationRequest.setFastestInterval(5000);
-        locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
-        LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, locationRequest, this);
-
-    }
-
-    @Override
-    public void onConnectionSuspended(int i) {
-
-    }
-
-    @Override
-    public void onLocationChanged(Location location) {
-
-        LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
-        if (latLng != null) {
-            String lat = String.valueOf(latLng.latitude);
-            String lng = String.valueOf(latLng.longitude);
-            if (sendLocationAsyncTask.getStatus() == AsyncTask.Status.RUNNING) {
-                sendLocationAsyncTask.cancel(true);
-                sendLocationAsyncTask = null;
-            }
-            sendLocationAsyncTask = new SendLocationAsyncTask();
-            sendLocationAsyncTask.execute(lat, lng);
-        }
-    }
-
-    @Override
-    public void onConnectionFailed(ConnectionResult connectionResult) {
-        Toast.makeText(getApplicationContext(),"GPS COnnection Lost!!",Toast.LENGTH_LONG).show();
-        mGoogleApiClient.reconnect();
     }
 
     public class MyAdapter extends BaseAdapter {
@@ -202,57 +200,108 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     public void getToken() {
 
         //check if url working
-        responseCode = checkStatus(BASE_URL + TOKEN_PAGE);
+        //responseCode=checkStatus(BASE_URL + TOKEN_PAGE);
         if (responseCode == SUCCESS_RESPONSE)
             new GetTokenAsyncTask().execute();
         else
             Toast.makeText(getApplicationContext(), "Connection Failed with Error Code: " + responseCode, Toast.LENGTH_LONG).show();
+
+
     }
 
     public void getDeliveriesToBeDone() {
 
         //check if url working
-        responseCode = checkStatus(BASE_URL + GET_DELIVERIES_PAGE);
+        //responseCode=checkStatus(BASE_URL);
+        if(viaMarkDone) {
+            lastClicked.setBackgroundColor(Color.WHITE);
+            lastClick.setVisibility(View.VISIBLE);
+        }
         if (responseCode == SUCCESS_RESPONSE)
             new GetDeliveryListAsyncTask().execute(TOKEN);
         else
             Toast.makeText(getApplicationContext(), "Connection Failed with Error Code: " + responseCode, Toast.LENGTH_LONG).show();
-
-
     }
 
     public void markDeliveryDone(View toBeMarked) {
 
         //check if url working
-        responseCode = checkStatus(BASE_URL + MARK_DONE_PAGE);
+        //responseCode=checkStatus(BASE_URL);
+        toBeMarked.setBackgroundColor(Color.RED);
         if (responseCode == SUCCESS_RESPONSE)
             new MarkDeliveryAsyncTask().execute(toBeMarked);
         else
             Toast.makeText(getApplicationContext(), "Connection Failed with Error Code: " + responseCode, Toast.LENGTH_LONG).show();
     }
 
-    public void sendLocation() {
-        mGoogleApiClient = new GoogleApiClient.Builder(this).addConnectionCallbacks(this).addOnConnectionFailedListener(this).addApi(LocationServices.API).build();
-        mGoogleApiClient.connect();
+    @Override
+    public void onConnected(Bundle bundle) {
+
+        requestLocationUpdates();
+        startLocationUpdates();
+
+    }
+
+    protected void startLocationUpdates() {
+
+        LocationServices.FusedLocationApi.requestLocationUpdates(
+                mGoogleApiClient, mLocationRequest, this);
+    }
+
+    private void requestLocationUpdates() {
+
+
+        mLocationRequest = new LocationRequest();
+        mLocationRequest.setInterval(3000);
+        mLocationRequest.setFastestInterval(5000);
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+
+
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+
+        mCurrentLocation = location;
+        latitude = String.valueOf(mCurrentLocation.getLatitude());
+        longitude = String.valueOf(mCurrentLocation.getLongitude());
+        //Toast.makeText(MainActivity.this, latitude+longitude, Toast.LENGTH_SHORT).show();
+        if (latitude != null) {
+            sendLocationAsyncTask = new SendLocationAsyncTask();
+            sendLocationAsyncTask.execute(latitude, longitude);
+        }
     }
 
     public class MarkDeliveryAsyncTask extends AsyncTask<View, Void, String> {
         View row;
-        String markedAddress;
+        String markedAddress,task_id;
 
         @Override
         protected void onPostExecute(String response) {
+            viaMarkDone=true;
 
-            if (response.equals("")) {
+            if (response.equals("true")) {
                 //if success
                 //remove the list item
                 ListView listView = (ListView) row.getParent();
                 int position = listView.getPositionForView(row);
-                listAddress.remove(position);
-                listPackageNo.remove(position);
-                adapter.notifyDataSetChanged();
+                row.setBackgroundColor(Color.GREEN);
+
+                RelativeLayout temp=(RelativeLayout)row;
+                lastClicked=temp;
+                Button clicked=(Button)temp.getChildAt(2);
+                lastClick=clicked;
+                clicked.setVisibility(View.GONE);
                 lastDelivery.setText(markedAddress);
-                lastDelivery.setBackgroundColor(Color.DKGRAY);
 
             } else {
                 //if failure
@@ -266,24 +315,27 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         protected void onProgressUpdate(Void... values) {
 
             //update the list item appearance to be sent to server
+            row.setBackgroundColor(Color.RED);
         }
 
 
         @Override
         protected String doInBackground(View... delivery) {
             row = delivery[0];
-            String packageNum, response = null;
+            String response = null;
             URL url = null;
             JSONObject jsonObjectOut = null;
             HttpURLConnection httpURLConnection = null;
             DataInputStream dataInputStream = null;
-            DataOutputStream dataOutputStream = null;
+            OutputStream dataOutputStream = null;
             //sending mark delivery request
+            ListView listView = (ListView) row.getParent();
+            int position = listView.getPositionForView(row);
             RelativeLayout parentRow = (RelativeLayout) delivery[0];
-            TextView packageNo = (TextView) parentRow.getChildAt(0);
             TextView address = (TextView) parentRow.getChildAt(1);
-            packageNum = packageNo.getText().toString();
             markedAddress = address.getText().toString();
+            task_id=listTaskId.get(position);
+
 
             try {
                 url = new URL(BASE_URL + MARK_DONE_PAGE);
@@ -294,17 +346,19 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                 httpURLConnection = (HttpURLConnection) url.openConnection();
                 httpURLConnection.setRequestProperty("Content-Type", "application/json");
                 httpURLConnection.setRequestProperty("Accept", "application/json");
-                httpURLConnection.setRequestMethod("GET");
+                httpURLConnection.setRequestMethod("PUT");
                 httpURLConnection.setDoInput(true);
                 httpURLConnection.setDoOutput(true);
 
-                dataOutputStream = new DataOutputStream(httpURLConnection.getOutputStream());
+                dataOutputStream = new BufferedOutputStream(httpURLConnection.getOutputStream());
 
                 JSONObject jsonObject = new JSONObject();
                 jsonObject.put(TOKEN_TAG, TOKEN);
-                jsonObject.put(PACKAGE_TAG, packageNum);
-                dataOutputStream.writeChars(jsonObject.toString());
+                jsonObject.put("task_id", task_id);
 
+                BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(dataOutputStream, "UTF-8"));
+                writer.write(jsonObject.toString());
+                writer.close();
 
                 dataInputStream = new DataInputStream(httpURLConnection.getInputStream());
                 BufferedReader streamReader = new BufferedReader(new InputStreamReader(dataInputStream, "UTF-8"));
@@ -344,12 +398,21 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     public class GetTokenAsyncTask extends AsyncTask<Void, Void, Integer[]> {
         @Override
         protected void onPostExecute(Integer... params) {
-            db_helper.insertToken(params[0].toString());
-            TOKEN = params[0].toString();
-            sendLocation();
-            getDeliveriesToBeDone();
+            try {
+                db_helper.insertToken(params[0].toString());
+                TOKEN = params[0].toString();
+                tokenMain.setText(TOKEN);
+                sendLocation();
+                getDeliveriesToBeDone();
+            }
+            catch (Exception e){
+                Toast.makeText(getApplicationContext(),"Error in Getting Token!!",Toast.LENGTH_LONG).show();
+            }
             //remove the progress dialog
             gettingToken.dismiss();
+        }
+        public void sendLocation() {
+            buildGoogleApiClient();
         }
 
         @Override
@@ -389,7 +452,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                 JSONObject jsonObject = null;
                 try {
                     jsonObject = new JSONObject(responseStrBuilder.toString());
-                    response[0] = jsonObject.getInt(TOKEN_TAG);
+                    response[0] = jsonObject.getInt(RECIEVE_TOKEN_TAG);
                 } catch (JSONException e) {
                     e.printStackTrace();
                 }
@@ -419,47 +482,48 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         }
     }
 
-    public class GetDeliveryListAsyncTask extends AsyncTask<String, Void, JSONArray> {
+    public class SendLocationAsyncTask extends AsyncTask<String, Void, Void> {
+
 
         @Override
-        protected JSONArray doInBackground(String... strings) {
+        protected Void doInBackground(String... strings) {
+
             URL url = null;
-            JSONArray jsonArray = null;
+            OutputStream dataOutputStream = null;
             try {
-                url = new URL(BASE_URL + GET_DELIVERIES_PAGE);
-            } catch (MalformedURLException exception) {
+                url=new URL(BASE_URL+LOCATION_PAGE);
+            } catch (Exception exception) {
                 exception.printStackTrace();
             }
             HttpURLConnection httpURLConnection = null;
             DataInputStream dataInputStream = null;
-            DataOutputStream dataOutputStream = null;
             try {
                 httpURLConnection = (HttpURLConnection) url.openConnection();
                 httpURLConnection.setRequestProperty("Content-Type", "application/json");
                 httpURLConnection.setRequestProperty("Accept", "application/json");
-                httpURLConnection.setRequestMethod("GET");
+                httpURLConnection.setRequestMethod("PUT");
                 httpURLConnection.setDoInput(true);
                 httpURLConnection.setDoOutput(true);
+                httpURLConnection.setChunkedStreamingMode(0);
 
-                dataOutputStream = new DataOutputStream(httpURLConnection.getOutputStream());
+                dataOutputStream=new BufferedOutputStream(httpURLConnection.getOutputStream());
 
                 JSONObject jsonObject = new JSONObject();
                 jsonObject.put(TOKEN_TAG, TOKEN);
-                dataOutputStream.writeChars(jsonObject.toString());
+                jsonObject.put(LATITUDE_TAG, strings[0]);
+                jsonObject.put(LONGITUDE_TAG, strings[1]);
 
+                BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(dataOutputStream, "UTF-8"));
+                writer.write(jsonObject.toString());
+
+                writer.close();
                 dataInputStream = new DataInputStream(httpURLConnection.getInputStream());
-                BufferedReader streamReader = new BufferedReader(new InputStreamReader(dataInputStream, "UTF-8"));
+                BufferedReader streamReader = new BufferedReader(new InputStreamReader(dataInputStream,"UTF-8"));
                 StringBuilder responseStrBuilder = new StringBuilder();
 
                 String inputStr;
                 while ((inputStr = streamReader.readLine()) != null)
                     responseStrBuilder.append(inputStr);
-
-                try {
-                    jsonArray = new JSONArray(responseStrBuilder.toString());
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                }
 
             } catch (Exception exception) {
                 exception.printStackTrace();
@@ -477,7 +541,64 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                     httpURLConnection.disconnect();
                 }
             }
-            return jsonArray;
+            return null;
+        }
+
+    }
+
+    public class GetDeliveryListAsyncTask extends AsyncTask<String, Void, JSONArray> {
+
+        @Override
+        protected JSONArray doInBackground(String... strings)
+        {
+            URL url = null;
+            JSONObject jsonArray = null;
+            JSONArray jsonArray1=null;
+            try {
+                // url = new URI(BASE_URL + GET_DELIVERIES_PAGE);
+                url=new URL(BASE_URL+GET_DELIVERIES_PAGE+"?"+TOKEN_TAG+"="+TOKEN);
+            } catch (Exception exception) {
+                exception.printStackTrace();
+            }
+            HttpURLConnection httpURLConnection = null;
+            DataInputStream dataInputStream = null;
+            try {
+                httpURLConnection = (HttpURLConnection) url.openConnection();
+                httpURLConnection.setRequestProperty("Content-Type", "application/json");
+                httpURLConnection.setRequestProperty("Accept", "application/json");
+                httpURLConnection.setRequestMethod("GET");
+                httpURLConnection.setDoInput(true);
+
+                dataInputStream = new DataInputStream(httpURLConnection.getInputStream());
+                BufferedReader streamReader = new BufferedReader(new InputStreamReader(dataInputStream,"UTF-8"));
+                StringBuilder responseStrBuilder = new StringBuilder();
+
+                String inputStr;
+                while ((inputStr = streamReader.readLine()) != null)
+                    responseStrBuilder.append(inputStr);
+
+                try {
+                    jsonArray = new JSONObject(responseStrBuilder.toString());
+                    jsonArray1=jsonArray.getJSONArray("tasks");
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+
+            } catch (Exception exception) {
+                exception.printStackTrace();
+            } finally {
+                if (dataInputStream != null) {
+                    try {
+                        dataInputStream.close();
+                    } catch (IOException exception) {
+                        exception.printStackTrace();
+                    }
+                }
+                if (httpURLConnection != null) {
+                    httpURLConnection.disconnect();
+                }
+            }
+            return jsonArray1;
         }
 
         @Override
@@ -487,19 +608,23 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
             refreshProgress.setVisibility(View.GONE);
             refresh.setVisibility(View.VISIBLE);
 
-            int deliveryCount = jsonArray.length();
             JSONObject deliveryObject;
             listPackageNo = null;
             listPackageNo = new ArrayList<>();
             listAddress = new ArrayList<>();
+            listTaskId=new ArrayList<>();
             try {
+
+                int deliveryCount = jsonArray.length();
                 for (int i = 0; i < deliveryCount; i++) {
                     deliveryObject = jsonArray.getJSONObject(i);
                     listAddress.add(deliveryObject.getString(ADDRESS_TAG));
                     listPackageNo.add(deliveryObject.getString(PACKAGE_TAG));
+                    listTaskId.add(deliveryObject.getString(ID_TAG));
                     adapter.notifyDataSetChanged();
                 }
-            } catch (JSONException e) {
+            } catch (Exception e) {
+                Toast.makeText(getApplicationContext(),"No Tasks Found!!",Toast.LENGTH_LONG).show();
                 e.printStackTrace();
             }
         }
@@ -514,86 +639,61 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         }
     }
 
-    public class SendLocationAsyncTask extends AsyncTask<String, Void, Void> {
+    public class GetStatusAsyncTask extends AsyncTask<String,Void,Integer>{
+
+        int statusCode;
+        @Override
+        protected void onPostExecute(Integer integer) {
+            responseViaAsync=integer;
+            if (integer != SUCCESS_RESPONSE)
+                Toast.makeText(getApplicationContext(), "Connection Failed with Error Code: " + responseCode, Toast.LENGTH_LONG).show();
+        }
 
         @Override
-        protected Void doInBackground(String... strings) {
+        protected Integer doInBackground(String... strings) {
             URL url = null;
-            JSONObject jsonObjectOut = null;
             HttpURLConnection httpURLConnection = null;
-            //DataInputStream dataInputStream = null;
-            DataOutputStream dataOutputStream = null;
-            //sending lat,lng
             try {
-                url = new URL(BASE_URL + LOCATION_PAGE);
+                url = new URL(strings[0]);
             } catch (MalformedURLException exception) {
                 exception.printStackTrace();
             }
             try {
                 httpURLConnection = (HttpURLConnection) url.openConnection();
-                httpURLConnection.setRequestProperty("Content-Type", "application/json");
-                httpURLConnection.setRequestProperty("Accept", "application/json");
-                httpURLConnection.setRequestMethod("PUT");
-                httpURLConnection.setDoInput(true);
-                httpURLConnection.setDoOutput(true);
-
-                dataOutputStream = new DataOutputStream(httpURLConnection.getOutputStream());
-
-                JSONObject jsonObject = new JSONObject();
-                jsonObject.put(TOKEN_TAG, TOKEN);
-                jsonObject.put(LATITUDE_TAG, strings[0]);
-                jsonObject.put(LONGITUDE_TAG, strings[1]);
-                dataOutputStream.writeChars(jsonObject.toString());
-
-
+                httpURLConnection.setConnectTimeout(2000);
+                httpURLConnection.setReadTimeout(2000);
+                httpURLConnection.setRequestMethod("HEAD");
+                httpURLConnection.connect();
+                statusCode = httpURLConnection.getResponseCode();
             } catch (Exception exception) {
                 exception.printStackTrace();
             } finally {
-                if (dataOutputStream != null) {
-                    try {
-                        dataOutputStream.flush();
-                        dataOutputStream.close();
-                    } catch (IOException exception) {
-                        exception.printStackTrace();
-                    }
-                }
+
                 if (httpURLConnection != null) {
                     httpURLConnection.disconnect();
                 }
+
             }
-            return null;
+
+            return statusCode;
         }
     }
 
     public int checkStatus(String Url) {
-        int statusCode = 0;
-        URL url = null;
-        HttpURLConnection httpURLConnection = null;
-        try {
-            url = new URL(Url);
-        } catch (MalformedURLException exception) {
-            exception.printStackTrace();
-        }
-        try {
-            httpURLConnection = (HttpURLConnection) url.openConnection();
-            statusCode = httpURLConnection.getResponseCode();
-        } catch (Exception exception) {
-            exception.printStackTrace();
-        } finally {
-
-            if (httpURLConnection != null) {
-                httpURLConnection.disconnect();
-            }
-        }
-
-
-        return statusCode;
+        new GetStatusAsyncTask().execute(Url);
+        return responseViaAsync;
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
 
-        if(item.getItemId()==R.id.requestToken){
+        if (item.getItemId() == R.id.requestToken) {
+
+            listAddress=new ArrayList<>();
+            listTaskId=new ArrayList<>();
+            listPackageNo=new ArrayList<>();
+            adapter.notifyDataSetChanged();
+            db_helper.deleteContent();
             getToken();
         }
         return true;
@@ -602,8 +702,19 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-        MenuInflater menuInflater=getMenuInflater();
-        menuInflater.inflate(R.menu.menu_main,menu);
+        MenuInflater menuInflater = getMenuInflater();
+        menuInflater.inflate(R.menu.menu_main, menu);
         return super.onCreateOptionsMenu(menu);
     }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        mGoogleApiClient.disconnect();
+    }
 }
+
+
+
+
+

@@ -13,7 +13,7 @@ public class DB_Helper extends SQLiteOpenHelper {
     public static final String TOKEN_TABLE="token_table";
     public static final String CREATE_TOKEN_TABLE= "create table if not exists "+TOKEN_TABLE+"(token  text)";
     public static final String DROP_TOKEN_TABLE="DROP TABLE IF EXISTS"+TOKEN_TABLE;
-    public static final String TOKEN_DELETE_CONTENT="DELETE FROM"+TOKEN_TABLE;
+    public static final String TOKEN_DELETE_CONTENT="DELETE FROM "+TOKEN_TABLE;
 
     @Override
     public void onCreate(SQLiteDatabase sqLiteDatabase) {
