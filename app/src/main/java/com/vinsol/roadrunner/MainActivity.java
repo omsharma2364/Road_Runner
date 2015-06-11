@@ -58,7 +58,7 @@ public class MainActivity extends AppCompatActivity implements  GoogleApiClient.
     RelativeLayout lastClicked;
     Button lastClick;
 
-    public final static String BASE_URL = "http://1146a6d6.ngrok.com/";
+    public final static String BASE_URL = "http://139.162.17.105:3000/";//"http://1146a6d6.ngrok.com/";
     public final static String TOKEN_TAG = "driver_token";
     public final static String RECIEVE_TOKEN_TAG = "token";
     public final static String PACKAGE_TAG = "package_number";
@@ -504,7 +504,6 @@ public class MainActivity extends AppCompatActivity implements  GoogleApiClient.
                 httpURLConnection.setRequestMethod("PUT");
                 httpURLConnection.setDoInput(true);
                 httpURLConnection.setDoOutput(true);
-                httpURLConnection.setChunkedStreamingMode(0);
 
                 dataOutputStream=new BufferedOutputStream(httpURLConnection.getOutputStream());
 
@@ -543,7 +542,6 @@ public class MainActivity extends AppCompatActivity implements  GoogleApiClient.
             }
             return null;
         }
-
     }
 
     public class GetDeliveryListAsyncTask extends AsyncTask<String, Void, JSONArray> {
@@ -555,7 +553,6 @@ public class MainActivity extends AppCompatActivity implements  GoogleApiClient.
             JSONObject jsonArray = null;
             JSONArray jsonArray1=null;
             try {
-                // url = new URI(BASE_URL + GET_DELIVERIES_PAGE);
                 url=new URL(BASE_URL+GET_DELIVERIES_PAGE+"?"+TOKEN_TAG+"="+TOKEN);
             } catch (Exception exception) {
                 exception.printStackTrace();
